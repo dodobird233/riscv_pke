@@ -13,6 +13,9 @@ typedef struct elf_info_t {
   process *p;
 } elf_info;
 
+char func_name[101][32];//记录函数名
+int func_cnt=0;
+elf_sym syms[101];
 //
 // the implementation of allocater. allocates memory space for later segment loading
 //
@@ -71,6 +74,43 @@ elf_status elf_load(elf_ctx *ctx) {
     if (elf_fpread(ctx, dest, ph_addr.memsz, ph_addr.off) != ph_addr.memsz)
       return EL_EIO;
   }
+  elf_section_head_table esht_shstrtab;
+  elf_section_head_table esht_addr;
+  elf_section_head_table esht_symtab;
+  elf_section_head_table esht_strtab;
+  //读取shstrtab
+  off=ctx->ehdr.shoff+ctx->ehdr.shstrndx*sizeof(elf_section_head_table);//section偏移
+  if (elf_fpread(ctx, (void *)&esht_shstrtab, sizeof(esht_shstrtab), off) != sizeof(esht_shstrtab)) return EL_EIO;
+  
+  char str[esht_shstrtab.sh_size+1];//读取shstrtab中的所有字符串
+  elf_fpread(ctx, (char *)&str, esht_shstrtab.sh_size, esht_shstrtab.sh_offset);
+  //读取section header,寻找strtab和symtab
+  for (i = 0, off = ctx->ehdr.shoff; i < ctx->ehdr.shnum; i++, off += ctx->ehdr.shentsize) {
+    //sprint("%d\n", i);
+    if (elf_fpread(ctx, (void *)&esht_addr, sizeof(esht_addr), off) != sizeof(esht_addr)) return EL_EIO;
+    //匹配
+    if(strcmp(str+esht_addr.sh_name,".symtab")==0){
+      esht_symtab=esht_addr;
+    }else if(strcmp(str+esht_addr.sh_name,".strtab")==0){
+      esht_strtab=esht_addr;
+    }
+  }
+  //从symtab获取函数名
+  int cnt=0;
+  for (i = 0, off = esht_symtab.sh_offset; i < esht_symtab.sh_size/sizeof(elf_sym); i++, off += sizeof(elf_sym)) {
+    //sprint("symtab:\n");
+    elf_sym sym;//每个sym entry
+    if (elf_fpread(ctx, (void *)&sym, sizeof(sym), off) != sizeof(elf_sym)) return EL_EIO;
+    //sprint("%d\n", sym.st_info);
+    if(sym.st_info==18){
+      //sprint("info=18:::::%d\n", sym.st_info);
+      char tmp[32];
+      elf_fpread(ctx, (char *)&tmp, sizeof(tmp), esht_strtab.sh_offset+sym.st_name);
+      syms[cnt]=sym;
+      strcpy(func_name[cnt++],tmp);
+    }
+  }
+  func_cnt=cnt;
 
   return EL_OK;
 }

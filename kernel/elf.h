@@ -37,6 +37,29 @@ typedef struct elf_prog_header_t {
   uint64 align;  /* Segment alignment */
 } elf_prog_header;
 
+// Elf section head table
+typedef struct elf_section_head_table_t {
+  uint32 sh_name; //节名称在字符串表中索引,非字符串
+  uint32 sh_type; 
+  uint64 sh_flags; //节的有关标志
+  uint64 sh_addr; //节在内存中的偏移(虚地址)
+  uint64 sh_offset; //节在文件中的偏移
+  uint64 sh_size;
+  uint32 sh_link; //下一个节索引
+  uint32 sh_info; //额外信息
+  uint64 sh_addralign;
+  uint64 sh_entsize;	//表项大小,非必须
+} elf_section_head_table;
+
+typedef struct elf_sym_t {
+  uint32 st_name; //符号名
+  unsigned char st_info; //符号类型和绑定信息
+  unsigned char st_other;
+  uint16 st_shndx; //符号所在的段
+  uint64 st_value; //符号对应的值
+  uint64 st_size; //符号大小
+} elf_sym;
+
 #define ELF_MAGIC 0x464C457FU  // "\x7FELF" in little endian
 #define ELF_PROG_LOAD 1
 
