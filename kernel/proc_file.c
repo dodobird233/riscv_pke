@@ -81,6 +81,37 @@ struct file *get_opened_file(int fd) {
 //
 int do_open(char *pathname, int flags) {
   struct file *opened_file = NULL;
+  //wfs_open最终会根据pathname逐层查找
+  //若为相对地址,在该处转为绝对地址
+  //sprint("FS: open file pre :%s\n",pathname);
+  if (pathname[0]== '.') {
+    char buf[MAX_PATH_LEN];//构造的绝对路径
+    memset(buf,'\0',MAX_PATH_LEN);
+    struct dentry *p=current->pfiles->cwd;
+    if(strlen(pathname)>1&&pathname[1]=='.'){//..
+      p=p->parent;
+    }
+    while(p!=NULL){
+      char path[MAX_PATH_LEN];
+      memset(path,'\0',MAX_PATH_LEN);
+      memcpy(path,buf,strlen(buf));
+      memset(buf,'\0',MAX_PATH_LEN);
+      memcpy(buf,p->name,strlen(p->name));
+      if(p!=vfs_root_dentry)
+        strcat(buf,"/");
+      strcat(buf,path);
+      p=p->parent;
+    }
+    if(strlen(pathname)>1&&pathname[1]=='.')
+      strcat(buf,pathname+3);
+    else if(pathname[0]=='.')
+      strcat(buf,pathname+2);
+    //memset(pathname,'\0',MAX_PATH_LEN);
+    //memcpy(pathname,buf,strlen(buf));
+    pathname=buf;
+  }
+  
+  //sprint("FS: open file after :%s\n",pathname);
   if ((opened_file = vfs_open(pathname, flags)) == NULL) return -1;
 
   int fd = 0;
@@ -97,6 +128,7 @@ int do_open(char *pathname, int flags) {
   memcpy(pfile, opened_file, sizeof(struct file));
 
   ++current->pfiles->nfiles;
+  //sprint("FS: opened a file %s with fd %d.\n", pathname, fd);
   return fd;
 }
 
@@ -167,8 +199,39 @@ int do_close(int fd) {
 //
 int do_opendir(char *pathname) {
   struct file *opened_file = NULL;
+  //同open_file
+  //sprint("FS: open dir pre : %s\n",pathname);
+  if (pathname[0]== '.') {
+    char buf[MAX_PATH_LEN];//构造的绝对路径
+    memset(buf,'\0',MAX_PATH_LEN);
+    struct dentry *p=current->pfiles->cwd;
+    if(strlen(pathname)>1&&pathname[1]=='.'){//..
+      p=p->parent;
+    }
+    while(p!=NULL){
+      char path[MAX_PATH_LEN];
+      memset(path,'\0',MAX_PATH_LEN);
+      memcpy(path,buf,strlen(buf));
+      memset(buf,'\0',MAX_PATH_LEN);
+      memcpy(buf,p->name,strlen(p->name));
+      if(p!=vfs_root_dentry)
+        strcat(buf,"/");
+      strcat(buf,path);
+      //sprint("in open  p: %s buf: %s\n",p->name,buf);
+      p=p->parent;
+    }
+    //去除前导.
+    if(strlen(pathname)>1&&pathname[1]=='.')
+      strcat(buf,pathname+3);
+    else if(pathname[0]=='.')
+      strcat(buf,pathname+2);
+    //memset(pathname,'\0',MAX_PATH_LEN);
+    //memcpy(pathname,buf,strlen(buf));
+    pathname=buf;
+  }
+  //sprint("FS: open dir after : %s\n",pathname);
   if ((opened_file = vfs_opendir(pathname)) == NULL) return -1;
-
+  //sprint("success\n");
   int fd = 0;
   struct file *pfile;
   for (fd = 0; fd < MAX_FILES; ++fd) {
@@ -220,4 +283,41 @@ int do_link(char *oldpath, char *newpath) {
 //
 int do_unlink(char *path) {
   return vfs_unlink(path);
+}
+
+int do_rcwd(proc_file_management*pfm,char*pathname){
+  if(pfm->cwd){
+    if(pfm->cwd->parent==NULL){
+      strcpy(pathname,"/");
+      //pathname[0]='/';
+      pathname[1]='\0';
+      return 0;
+    }else{
+      memcpy(pathname,pfm->cwd->name,strlen(pfm->cwd->name));
+      struct dentry *parent = pfm->cwd->parent;
+      while(parent!=NULL){//向上找到根目录
+        char path[MAX_PATH_LEN];
+        memset(path,'\0',MAX_PATH_LEN);
+        memcpy(path,pathname,strlen(pathname));//先将pathname暂存到path
+        memset(pathname,'\0',MAX_PATH_LEN);
+        memcpy(pathname,parent->name,strlen(parent->name));//加上父目录的name
+        if(parent!=vfs_root_dentry)
+          strcat(pathname,"/");
+        strcat(pathname,path);//将原来的pathname接在后面
+        parent=parent->parent;
+      }
+      pathname[strlen(pathname)]='\0';
+    }
+      return 0;
+  }
+  return -1;
+}
+int do_ccwd(proc_file_management*pfm,char*pathname) {
+  int fd;
+  if((fd=do_opendir(pathname))<0) return -1;
+  //sprint("%d\n",fd);
+  pfm->cwd = pfm->opened_files[fd].f_dentry;
+  //sprint("%s\n",pfm->cwd->name);
+  do_closedir(fd);
+  return 0;
 }

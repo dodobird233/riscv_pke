@@ -37,4 +37,7 @@ proc_file_management *init_proc_file_management(void);
 
 void reclaim_proc_file_management(proc_file_management *pfiles);
 
+int do_rcwd(proc_file_management*pfm,char *pathname);
+int do_ccwd(proc_file_management*pfm,char *pathname);
+
 #endif

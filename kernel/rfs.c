@@ -597,6 +597,7 @@ int rfs_link(struct vinode *parent, struct dentry *sub_dentry, struct vinode *li
   link_node->nlinks++;
   rfs_add_direntry(parent,sub_dentry->name,link_node->inum);
   rfs_write_back_vinode(link_node);
+  rfs_write_back_vinode(parent);
   return 0;
 }
 
