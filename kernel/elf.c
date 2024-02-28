@@ -13,6 +13,8 @@ typedef struct elf_info_t {
   process *p;
 } elf_info;
 
+char debugline[10000];
+
 //
 // the implementation of allocater. allocates memory space for later segment loading
 //
@@ -218,7 +220,28 @@ elf_status elf_load(elf_ctx *ctx) {
     if (elf_fpread(ctx, dest, ph_addr.memsz, ph_addr.off) != ph_addr.memsz)
       return EL_EIO;
   }
-
+  elf_section_head_table esht_shstrtab;
+  elf_section_head_table esht_addr;
+  elf_section_head_table esht_symtab;
+  elf_section_head_table esht_debugline;
+  //读取shstrtab
+  off=ctx->ehdr.shoff+ctx->ehdr.shstrndx*sizeof(elf_section_head_table);//section偏移
+  if (elf_fpread(ctx, (void *)&esht_shstrtab, sizeof(esht_shstrtab), off) != sizeof(esht_shstrtab)) return EL_EIO;
+  
+  char str[esht_shstrtab.sh_size+1];//读取shstrtab中的所有字符串
+  elf_fpread(ctx, (char *)&str, esht_shstrtab.sh_size, esht_shstrtab.sh_offset);
+  //读取section header,寻找debugline
+  for (i = 0, off = ctx->ehdr.shoff; i < ctx->ehdr.shnum; i++, off += ctx->ehdr.shentsize) {
+    //sprint("%d\n", i);
+    if (elf_fpread(ctx, (void *)&esht_addr, sizeof(esht_addr), off) != sizeof(esht_addr)) return EL_EIO;
+    //匹配
+    if(strcmp(str+esht_addr.sh_name,".debug_line")==0){
+      esht_debugline=esht_addr;
+      break;
+    }
+  }
+  elf_fpread(ctx, (char *)&debugline, esht_debugline.sh_size, esht_debugline.sh_offset);
+  make_addr_line(ctx,(char*)&debugline,esht_debugline.sh_size);
   return EL_OK;
 }
 
