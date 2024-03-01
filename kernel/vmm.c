@@ -10,6 +10,7 @@
 #include "util/string.h"
 #include "spike_interface/spike_utils.h"
 #include "util/functions.h"
+#include "process.h"
 
 /* --- utility functions for virtual address mapping --- */
 //
@@ -188,4 +189,92 @@ void user_vm_unmap(pagetable_t page_dir, uint64 va, uint64 size, int free) {
   pte_t* pte=page_walk(page_dir,va,0);
   free_page((void*)PTE2PA(*pte));
   (*pte)&=~PTE_V;
+}
+uint64 mcb_head=0;
+void better_malloc_init(){
+  void* pa1 = alloc_page();
+  memset((char*)pa1,0,(size_t)PGSIZE);
+  uint64 va1 = g_ufree_page;
+  //sprint("init mcb head:va=%x\n",va1);
+  mcb_head=va1;
+  g_ufree_page += PGSIZE;
+  user_vm_map((pagetable_t)current->pagetable, va1, PGSIZE, (uint64)pa1,
+        prot_to_type(PROT_WRITE | PROT_READ, 1));
+  //sprint("203\n");
+  pte_t* pte=page_walk(current->pagetable,mcb_head,0);
+  //sprint("204\n");
+  uint64 mcb_head_pa=PTE2PA(*pte);
+  //sprint("mcb_head_pa:%x\n",mcb_head_pa);
+  mcb*mcb1=(mcb*)mcb_head_pa;
+  mcb1->next=NULL;
+  mcb1->used=0;
+}
+uint64 better_malloc(uint64 siz){
+  //find mcb head
+  //sprint("214\n");
+  pte_t* pte=page_walk(current->pagetable,mcb_head,0);
+  //sprint("216\n");
+  uint64 mcb_head_pa=PTE2PA(*pte);
+  //sprint("mcb_head_pa:%x\n",mcb_head_pa);
+  mcb*mcb1=(mcb*)mcb_head_pa;
+  mcb*p=mcb1;
+  uint64 start_offset=0;
+  while(1){
+    start_offset+=sizeof(mcb)+p->used;
+    if(p->next==NULL){
+      break;
+    }
+    //sprint("free %d,need %d\n",(uint64)(p->next)-(uint64)p-p->used,siz+8-(siz%8)+sizeof(mcb));
+    if((uint64)(p->next)-(uint64)p-p->used>=siz+8-(siz%8)+sizeof(mcb)){
+      //两个mcb块之间的空闲区域够用
+      break;
+    }
+    p=p->next;
+  }
+  mcb* new_mcb=(mcb*)((uint64)(mcb_head_pa+start_offset));
+  new_mcb->next=p->next;
+  p->next=(mcb*)(mcb_head_pa+start_offset);
+  new_mcb->used=siz+8-(siz%8);
+  //跨页直接分配多个页，简单粗暴
+  if(siz>=PGSIZE){
+    uint64 has_alloc=0;
+    while(has_alloc<new_mcb->used){
+      void* pa = alloc_page();
+      uint64 va = g_ufree_page;
+      g_ufree_page += PGSIZE;
+      has_alloc+=PGSIZE;
+      user_vm_map((pagetable_t)current->pagetable, va, PGSIZE, (uint64)pa,
+            prot_to_type(PROT_WRITE | PROT_READ, 1));      
+    }    
+  }
+  
+  //sprint("used:%d,offset:%d,malloc:%x\n",new_mcb->used,start_offset,mcb_head+start_offset+sizeof(mcb));
+  return mcb_head+start_offset+sizeof(mcb);
+}
+
+uint64 better_free(uint64 va){
+  //sprint("va to be free:%x\n",va);
+  if((uint64)va<mcb_head||(uint64)va>=mcb_head+PGSIZE)
+    return 0;
+  //sprint("242\n");
+  pte_t* pte=page_walk(current->pagetable,mcb_head,0);
+  //sprint("244\n");
+  uint64 mcb_head_pa=PTE2PA(*pte);
+  mcb*mcb1=(mcb*)mcb_head_pa;
+  mcb*p=mcb1;
+  while(1){
+    //从链表头开始找va
+    //sprint("p:%x",(uint64)p);
+    if((uint64)p->next+sizeof(mcb)==mcb_head_pa+(uint64)va-(uint64)mcb_head){
+      //sprint("find,p->next:%x,p->n->n:%x\n",(uint64)p->next,(uint64)p->next->next);
+      p->next=p->next->next;
+      return 1;
+    }
+    if(p->next==NULL){
+      panic("error in free");
+      break;
+    }
+    p=p->next;
+  }
+  return 1;
 }
