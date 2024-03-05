@@ -91,11 +91,22 @@ typedef struct process_t {
   int tick_count;
 }process;
 
+typedef struct sem_t
+{
+  uint64 used;
+  int val;
+  process* sem_queue;
+}sem;
+
+sem sems[20];
+
 // switch to run user app
 void switch_to(process*);
 
 // initialize process pool (the procs[] array)
 void init_proc_pool();
+// initialize sem pool
+void init_sem_pool();
 // allocate an empty process, init its vm space. returns its pid
 process* alloc_process();
 // reclaim a process, destruct its vm space and free physical pages.

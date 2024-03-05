@@ -82,6 +82,17 @@ void init_proc_pool() {
   }
 }
 
+// initialize sem pool
+void init_sem_pool() {
+  memset( sems, 0, sizeof(sem)*20 );
+
+  for (int i = 0; i < 20; ++i) {
+    sems[i].used=0;
+    sems[i].val=0;
+    sems[i].sem_queue=NULL;
+  }
+}
+
 //
 // allocate an empty process, init its vm space. returns the pointer to
 // process strcuture. added @lab3_1
