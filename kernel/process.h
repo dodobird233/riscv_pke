@@ -2,7 +2,7 @@
 #define _PROC_H_
 
 #include "riscv.h"
-
+#include "config.h"
 typedef struct trapframe_t {
   // space to store context (all common registers)
   /* offset:0   */ riscv_regs regs;
@@ -25,6 +25,6 @@ typedef struct process_t {
 
 void switch_to(process*);
 
-extern process* current;
+extern process* current[NCPU];
 
 #endif
