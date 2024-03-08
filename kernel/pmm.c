@@ -15,6 +15,9 @@ extern uint64 g_mem_size;
 static uint64 free_mem_start_addr;  //beginning address of free memory
 static uint64 free_mem_end_addr;    //end address of free memory (not included)
 
+// ref count of physical pages
+int ref[PKE_MAX_ALLOWABLE_RAM/PGSIZE+1];
+
 typedef struct node {
   struct node *next;
 } list_node;
@@ -28,8 +31,11 @@ static list_node g_free_mem_list;
 //
 static void create_freepage_list(uint64 start, uint64 end) {
   g_free_mem_list.next = 0;
-  for (uint64 p = ROUNDUP(start, PGSIZE); p + PGSIZE < end; p += PGSIZE)
+  for (uint64 p = ROUNDUP(start, PGSIZE); p + PGSIZE < end; p += PGSIZE){
     free_page( (void *)p );
+    ref[p/PGSIZE]=0;
+  }
+    
 }
 
 //
@@ -38,11 +44,13 @@ static void create_freepage_list(uint64 start, uint64 end) {
 void free_page(void *pa) {
   if (((uint64)pa % PGSIZE) != 0 || (uint64)pa < free_mem_start_addr || (uint64)pa >= free_mem_end_addr)
     panic("free_page 0x%lx \n", pa);
-
-  // insert a physical page to g_free_mem_list
-  list_node *n = (list_node *)pa;
-  n->next = g_free_mem_list.next;
-  g_free_mem_list.next = n;
+  ref[(uint64)pa/PGSIZE]--;
+  if(ref[(uint64)pa/PGSIZE]<=0){
+    // insert a physical page to g_free_mem_list
+    list_node *n = (list_node *)pa;
+    n->next = g_free_mem_list.next;
+    g_free_mem_list.next = n;    
+  }
 }
 
 //
@@ -52,7 +60,7 @@ void free_page(void *pa) {
 void *alloc_page(void) {
   list_node *n = g_free_mem_list.next;
   if (n) g_free_mem_list.next = n->next;
-
+  ref[(uint64)n/PGSIZE]=1;
   return (void *)n;
 }
 

@@ -10,9 +10,10 @@
 #include "vmm.h"
 #include "sched.h"
 #include "util/functions.h"
-
+#include "string.h"
 #include "spike_interface/spike_utils.h"
 
+extern int ref[];
 //
 // handling the syscalls. will call do_syscall() defined in kernel/syscall.c
 //
@@ -56,12 +57,26 @@ void handle_user_page_fault(uint64 mcause, uint64 sepc, uint64 stval) {
   sprint("handle_page_fault: %lx\n", stval);
   switch (mcause) {
     case CAUSE_STORE_PAGE_FAULT:
+    {
       // TODO (lab2_3): implement the operations that solve the page fault to
       // dynamically increase application stack.
       // hint: first allocate a new physical page, and then, maps the new page to the
       // virtual address that causes the page fault.
-      map_pages(current->pagetable,ROUNDDOWN(stval,PGSIZE),PGSIZE,(uint64)alloc_page(),prot_to_type(PROT_READ|PROT_WRITE,1));
-      break;
+      pte_t*pte=page_walk(current->pagetable,ROUNDDOWN(stval,PGSIZE),0);
+      if((*pte)&PTE_COW){
+        uint64 pa=(uint64)alloc_page();
+        memcpy((void*)pa,(void*)(PTE2PA(*pte)),PGSIZE);
+        user_vm_unmap(current->pagetable,ROUNDDOWN(stval,PGSIZE),PGSIZE,0);
+        map_pages(current->pagetable,ROUNDDOWN(stval,PGSIZE),PGSIZE,pa,prot_to_type(PROT_READ|PROT_WRITE,1));
+        if(ref[PTE2PA(*pte)/PGSIZE]--==0){
+          free_page((void*)(PTE2PA(*pte)));
+        }
+      }else{
+        map_pages(current->pagetable,ROUNDDOWN(stval,PGSIZE),PGSIZE,(uint64)alloc_page(),prot_to_type(PROT_READ|PROT_WRITE,1));
+      }
+
+      break;      
+    }
     default:
       sprint("unknown page fault.\n");
       break;

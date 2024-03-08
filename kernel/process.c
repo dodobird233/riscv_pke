@@ -25,7 +25,7 @@ extern void return_to_user(trapframe *, uint64 satp);
 // trap_sec_start points to the beginning of S-mode trap segment (i.e., the entry point
 // of S-mode trap vector).
 extern char trap_sec_start[];
-
+extern int ref[];
 // process pool. added @lab3_1
 process procs[NPROC];
 
@@ -211,10 +211,22 @@ int do_fork( process* parent)
             if (free_block_filter[(heap_block - heap_bottom) / PGSIZE])  // skip free blocks
               continue;
 
-            void* child_pa = alloc_page();
-            memcpy(child_pa, (void*)lookup_pa(parent->pagetable, heap_block), PGSIZE);
-            user_vm_map((pagetable_t)child->pagetable, heap_block, PGSIZE, (uint64)child_pa,
-                        prot_to_type(PROT_WRITE | PROT_READ, 1));
+            // void* child_pa = alloc_page();
+            // memcpy(child_pa, (void*)lookup_pa(parent->pagetable, heap_block), PGSIZE);
+            // user_vm_map((pagetable_t)child->pagetable, heap_block, PGSIZE, (uint64)child_pa,
+            //             prot_to_type(PROT_WRITE | PROT_READ, 1));
+            uint64 ppa=lookup_pa(parent->pagetable, heap_block);
+            //sprint("fork ppa:%lx,heap block:%d\n",ppa,heap_block);  
+            user_vm_map((pagetable_t)child->pagetable, heap_block, PGSIZE, ppa,
+                        prot_to_type(PROT_COW|PROT_READ, 1));
+            //sprint("fork va:%lx\n",heap_block);        
+            pte_t*pte=page_walk((pagetable_t)parent->pagetable,heap_block,0);
+            //sprint("fork pte:%d\n",pte);
+            if(PTE_FLAGS(*pte)&PROT_WRITE) (*pte)=(*pte)&(~PTE_W);
+            (*pte)=(*pte)|(PTE_COW);
+            // user_vm_map((pagetable_t)parent->pagetable, heap_block, PGSIZE, ppa,
+            //             prot_to_type(PROT_COW|PROT_READ, 1));
+            ref[ppa/PGSIZE]++;
           }
 
           child->mapped_info[HEAP_SEGMENT].npages = parent->mapped_info[HEAP_SEGMENT].npages;
@@ -240,6 +252,7 @@ int do_fork( process* parent)
           parent->mapped_info[i].npages;
         child->mapped_info[child->total_mapped_region].seg_type = CODE_SEGMENT;
         child->total_mapped_region++;
+        sprint("do_fork map code segment at pa:%lx of parent to child at va:%lx.\n",lookup_pa(parent->pagetable,parent->mapped_info[i].va),parent->mapped_info[i].va);
         break;
     }
   }

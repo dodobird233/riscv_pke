@@ -25,6 +25,7 @@ int map_pages(pagetable_t page_dir, uint64 va, uint64 size, uint64 pa, int perm)
     if ((pte = page_walk(page_dir, first, 1)) == 0) return -1;
     if (*pte & PTE_V)
       panic("map_pages fails on mapping va (0x%lx) to pa (0x%lx)", first, pa);
+    if((*pte&PTE_W)&&(perm&PTE_COW)) perm&=~PTE_W;
     *pte = PA2PTE(pa) | perm | PTE_V;
   }
   return 0;
@@ -38,6 +39,7 @@ uint64 prot_to_type(int prot, int user) {
   if (prot & PROT_READ) perm |= PTE_R | PTE_A;
   if (prot & PROT_WRITE) perm |= PTE_W | PTE_D;
   if (prot & PROT_EXEC) perm |= PTE_X | PTE_A;
+  if(prot&PROT_COW) perm|=PTE_COW;
   if (perm == 0) perm = PTE_R;
   if (user) perm |= PTE_U;
   return perm;
@@ -92,7 +94,7 @@ uint64 lookup_pa(pagetable_t pagetable, uint64 va) {
   if (va >= MAXVA) return 0;
 
   pte = page_walk(pagetable, va, 0);
-  if (pte == 0 || (*pte & PTE_V) == 0 || ((*pte & PTE_R) == 0 && (*pte & PTE_W) == 0))
+  if (pte == 0 || (*pte & PTE_V) == 0)
     return 0;
   pa = PTE2PA(*pte);
 
