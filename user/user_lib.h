@@ -35,3 +35,4 @@ int unlink_u(const char *fn);
 
 
 #endif
+void wait(int pid);

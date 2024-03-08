@@ -168,7 +168,11 @@ int free_process( process* proc ) {
   // but for proxy kernel, it (memory leaking) may NOT be a really serious issue,
   // as it is different from regular OS, which needs to run 7x24.
   proc->status = ZOMBIE;
-
+  // 判断父进程是否在阻塞中
+  if(proc->parent!=NULL&&proc->parent->status==BLOCKED){
+    proc->parent->status=READY;
+    insert_to_ready_queue(proc->parent);
+  }
   return 0;
 }
 
@@ -244,6 +248,22 @@ int do_fork( process* parent)
           parent->mapped_info[i].npages;
         child->mapped_info[child->total_mapped_region].seg_type = CODE_SEGMENT;
         child->total_mapped_region++;
+        sprint("do_fork map code segment at pa:%lx of parent to child at va:%lx.\n",lookup_pa(parent->pagetable,parent->mapped_info[i].va),parent->mapped_info[i].va);
+        break;
+
+      case DATA_SEGMENT:
+        for(int j=0;j<parent->mapped_info[i].npages;j++){//分配物理页
+          void* child_pa = alloc_page();
+          //拷贝数据
+          memcpy(child_pa, (void*)lookup_pa(parent->pagetable, parent->mapped_info[i].va+j*PGSIZE), PGSIZE);
+          //映射到子进程的虚拟地址空间
+          user_vm_map((pagetable_t)child->pagetable, parent->mapped_info[i].va+j*PGSIZE, PGSIZE, (uint64)child_pa,
+                      prot_to_type(PROT_WRITE | PROT_READ, 1));
+        }
+        child->mapped_info[child->total_mapped_region].va = parent->mapped_info[i].va;
+        child->mapped_info[child->total_mapped_region].npages = parent->mapped_info[i].npages;
+        child->mapped_info[child->total_mapped_region].seg_type = DATA_SEGMENT;
+        child->total_mapped_region++;
         break;
     }
   }
@@ -254,4 +274,46 @@ int do_fork( process* parent)
   insert_to_ready_queue( child );
 
   return child->pid;
+}
+
+int is_any_child_exit(){
+  for (int i = 0; i < NPROC; i++) {
+    if (procs[i].status == ZOMBIE && procs[i].parent == current) {
+      return procs[i].pid;
+    }
+  }
+  return 0;
+}
+
+int is_child_exit(int pid){
+  for (int i = 0; i < NPROC; i++) {
+    if (procs[i].pid == pid && procs[i].status == ZOMBIE && procs[i].parent == current) {
+      return procs[i].pid;
+    }
+  }
+  return 0;
+}
+
+int do_wait(int pid) {
+  //当pid为-1时,父进程等待任意一个子进程退出即返回子进程的pid
+  //当pid大于0时,父进程等待进程号为pid的子进程退出即返回子进程的pid
+  //如果pid不合法或pid大于0且pid对应的进程不是当前进程的子进程,返回-1
+  if (pid == -1) {
+    int child_pid=-1;
+    if(!(child_pid = is_any_child_exit())) {
+      current->status = BLOCKED;
+      schedule();
+    }
+    return child_pid;
+  }else if(pid > 0){
+    int find=0;
+    if(!is_child_exit(pid)){
+      find=1;
+      current->status = BLOCKED;
+      schedule();
+    }
+    if(!find) return -1;
+    return pid;
+  }
+  return -1;
 }
