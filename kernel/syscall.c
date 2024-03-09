@@ -14,7 +14,7 @@
 #include "vmm.h"
 #include "sched.h"
 #include "proc_file.h"
-
+#include "memlayout.h"
 #include "spike_interface/spike_utils.h"
 #include "elf.h"
 //
@@ -219,9 +219,35 @@ ssize_t sys_user_wait(int pid){
   return do_wait(pid);
 }
 
-uint64 sys_user_exec(char*pathname){
+uint64 sys_user_exec(char*pathname,char*para){
+  // pathname and para from user process
   char * pathpa = (char*)user_va_to_pa((pagetable_t)(current->pagetable), (void*)pathname);
+  char * parapa = (char*)user_va_to_pa((pagetable_t)(current->pagetable), (void*)para);
+  // save a copy to kernel space
+  char patharr[100];
+  char paraarr[100];
+  strcpy(patharr,pathpa);
+  strcpy(paraarr,parapa);
+  // do exec, reload elf
+  // sprint("path:%s\n",pathpa);
   reload_elf_exec(current,pathpa);
+
+  // spare space to store para string in stack
+  uint64 child_parava = current->trapframe->regs.sp-ROUNDUP(strlen(paraarr)+1, 8);
+  
+  uint64 child_parapa = (uint64)user_va_to_pa((pagetable_t)(current->pagetable), (void*)child_parava);
+  // copy para string
+  strcpy((char *)child_parapa, paraarr);
+  // move sp point to para string
+  current->trapframe->regs.sp = child_parava;
+  // point to para string
+  current->trapframe->regs.sp -= 8;
+  // assume stack in one page
+  *((uint64*)(child_parapa-8)) = child_parava;
+  // set regs to pass para
+  current->trapframe->regs.a0 = 1; // para cnt
+  current->trapframe->regs.a1 = current->trapframe->regs.sp; // para pointer
+
   return 0;
 }
 
@@ -276,7 +302,7 @@ long do_syscall(long a0, long a1, long a2, long a3, long a4, long a5, long a6, l
     case SYS_user_wait:
       return sys_user_wait(a1);
     case SYS_user_exec:
-      return sys_user_exec((char*)a1);
+      return sys_user_exec((char*)a1,(char*)a2);
     default:
       panic("Unknown syscall %ld \n", a0);
   }

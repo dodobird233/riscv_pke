@@ -48,8 +48,10 @@ uint64 prot_to_type(int prot, int user) {
 // returns: PTE (page table entry) pointing to va.
 //
 pte_t *page_walk(pagetable_t page_dir, uint64 va, int alloc) {
-  if (va >= MAXVA) panic("page_walk");
-
+  if (va >= MAXVA){
+    sprint("MAXVA:%lx,page_walk:va:%lx\n",MAXVA,va);
+    panic("page_walk");
+  }
   // starting from the page directory
   pagetable_t pt = page_dir;
 
@@ -159,6 +161,7 @@ void *user_va_to_pa(pagetable_t page_dir, void *va) {
   // (va & (1<<PGSHIFT -1)) means computing the offset of "va" inside its page.
   // Also, it is possible that "va" is not mapped at all. in such case, we can find
   // invalid PTE, and should return NULL.
+  //sprint("user va to pa: va:%lx\n",va);
   uint64 pa=lookup_pa(page_dir,(uint64)va);
   return (void*)(pa + ((uint64)va & ((1<<PGSHIFT)-1)));
 
@@ -185,9 +188,21 @@ void user_vm_unmap(pagetable_t page_dir, uint64 va, uint64 size, int free) {
   // (use free_page() defined in pmm.c) the physical pages. lastly, invalidate the PTEs.
   // as naive_free reclaims only one page at a time, you only need to consider one page
   // to make user/app_naive_malloc to behave correctly.
-  pte_t* pte=page_walk(page_dir,va,0);
-  free_page((void*)PTE2PA(*pte));
-  (*pte)&=~PTE_V;
+
+  // need to unmap [va, va+size] !!!  both front and back!!!
+  uint64 first, last;
+  pte_t *pte;
+  for (first = ROUNDDOWN(va, PGSIZE), last = ROUNDDOWN(va + size - 1, PGSIZE);
+      first <= last; first += PGSIZE) {
+    if ((pte = page_walk(page_dir, first, 1)) == 0) return;
+    if (!(*pte & PTE_V))
+      panic("unmap_pages fails on va (0x%lx)\n", first);
+    *pte &= ~PTE_V;
+    if(free) {
+      free_page((void *)PTE2PA(*pte));
+    }    
+  }
+
 }
 
 //

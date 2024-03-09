@@ -27,7 +27,7 @@ static void *elf_alloc_mb(elf_ctx *ctx, uint64 elf_pa, uint64 elf_va, uint64 siz
   void *pa = alloc_page();
   if (pa == 0) panic("uvmalloc mem alloc falied\n");
 
-  memset((void *)pa, 0, PGSIZE);
+  //memset((void *)pa, 0, PGSIZE);
   user_vm_map((pagetable_t)msg->p->pagetable, elf_va, PGSIZE, (uint64)pa,
          prot_to_type(PROT_WRITE | PROT_READ | PROT_EXEC, 1));
 
@@ -39,21 +39,8 @@ static void *elf_alloc_mb_process(process*p, uint64 elf_pa, uint64 elf_va, uint6
   kassert(size < PGSIZE);
   void *pa = alloc_page();
   if (pa == 0) panic("uvmalloc mem alloc falied\n");
-
-  memset((void *)pa, 0, PGSIZE);
-  user_vm_map(p->pagetable, elf_va, PGSIZE, (uint64)pa,
-         prot_to_type(PROT_WRITE | PROT_READ | PROT_EXEC, 1));
-
-  return pa;
-}
-
-static void *elf_alloc_mb_process(process*p, uint64 elf_pa, uint64 elf_va, uint64 size) {
-  // we assume that size of proram segment is smaller than a page.
-  kassert(size < PGSIZE);
-  void *pa = alloc_page();
-  if (pa == 0) panic("uvmalloc mem alloc falied\n");
-
-  memset((void *)pa, 0, PGSIZE);
+  //sprint("allocpage:%lx\n",pa);
+  //memset((void *)pa, 0, PGSIZE);
   user_vm_map(p->pagetable, elf_va, PGSIZE, (uint64)pa,
          prot_to_type(PROT_WRITE | PROT_READ | PROT_EXEC, 1));
 
@@ -280,37 +267,6 @@ void load_bincode_from_vfs_elf(process *p) {
   // entry (virtual, also physical in lab1_x) address
   p->trapframe->epc = elfloader.ehdr.entry;
 
-  // close the vfs file
-  vfs_close( info.f );
-
-  sprint("Application program entry point (virtual address): 0x%lx\n", p->trapframe->epc);
-}
-//load the elf of user application, by using vfs.
-void load_bincode_from_vfs_elf(process *p) {
-  arg_buf arg_bug_msg;
-
-  // retrieve command line arguements
-  size_t argc = parse_args(&arg_bug_msg);
-  if (!argc) panic("You need to specify the application program!\n");
-
-  sprint("Application: %s\n", arg_bug_msg.argv[0]);
-
-  //elf loading. elf_ctx is defined in kernel/elf.h, used to track the loading process.
-  elf_ctx elfloader;
-
-
-  struct file* f=vfs_open(arg_bug_msg.argv[0], O_RDONLY);
-
-  // init elfloader context. elf_init() is defined above.
-  if (elf_init_vfs(&elfloader, f) != EL_OK)
-    panic("fail to init elfloader.\n");
-
-  // load elf. elf_load() is defined above.
-  if (elf_load_vfs(&elfloader,f,p) != EL_OK) panic("Fail on loading elf.\n");
-
-  // entry (virtual, also physical in lab1_x) address
-  p->trapframe->epc = elfloader.ehdr.entry;
-
   // close the host spike file
   vfs_close(f);
 
@@ -323,7 +279,7 @@ void reload_elf_exec(process *p,char*pathpa){
   // read from new elf
   struct file*f=vfs_open(pathpa,O_RDONLY);
   if(vfs_read(f,(char*)&(elfctx.ehdr),sizeof(elfctx.ehdr))!=sizeof(elfctx.ehdr)) panic("read elf header error");
-  
+
   elf_prog_header ph_addr;
   int i, off;
   elf_ctx*ctx=&elfctx;
@@ -341,8 +297,10 @@ void reload_elf_exec(process *p,char*pathpa){
       int j;
       for(j=0;j<PGSIZE/sizeof(mapped_region);j++){ 
         if(p->mapped_info[j].seg_type==CODE_SEGMENT){
-          // unmap old page
-          user_vm_unmap(p->pagetable,p->mapped_info[j].va,PGSIZE,1);
+          // unmap old page, can not free because farther process use the same pa
+          // fork() ->p1 --------------------------->error in code segment
+          //   |-> p0 ->exec() -> free code segment physically
+          user_vm_unmap(p->pagetable,p->mapped_info[j].va,PGSIZE,0);
           // map new elf
           p->mapped_info[j].va = ph_addr.vaddr;
           p->mapped_info[j].npages = 1;                
